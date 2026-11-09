@@ -13,37 +13,39 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Descargar proyecto
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Configurar Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Configurar Java
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Preparar archivos web
+      - name: Preparar tienda
         run: |
-          mkdir -p www
+          mkdir -p www assets
           cp index.html manifest.webmanifest sw.js *.png www/
+          cp pidemas-app-icon.png assets/icon.png
+          cp pidemas-app-icon.png assets/icon-only.png
+          cp pidemas-app-icon.png assets/icon-foreground.png
 
       - name: Instalar dependencias
         run: npm install
 
-      - name: Preparar autenticación nativa
+      - name: Preparar Google
         run: npx esbuild native-auth.js --bundle --format=iife --outfile=www/native-auth.js
 
-      - name: Crear proyecto Android
+      - name: Crear Android
         run: npx cap add android
 
-      - name: Configurar retorno de Google
+      - name: Generar iconos nativos
+        run: npx capacitor-assets generate --android
+
+      - name: Configurar retorno Google
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -65,7 +67,7 @@ jobs:
               p.write_text(s)
           PY
 
-      - name: Sincronizar Capacitor
+      - name: Sincronizar
         run: npx cap sync android
 
       - name: Compilar APK
@@ -74,8 +76,8 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug
 
-      - name: Guardar APK
+      - name: Descargar APK
         uses: actions/upload-artifact@v4
         with:
-          name: Pidemas-Tienda-APK-Google
+          name: Pidemas-Tienda-APK-Icono-Naranja
           path: android/app/build/outputs/apk/debug/app-debug.apk
