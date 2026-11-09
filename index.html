@@ -33,6 +33,7 @@ html.piHomePre .app > section:has(#products) { display: none !important; }
 </script>
 <title>Pidemás Delivery — Tienda</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="native-auth.js"></script>
 <style>
 * { box-sizing: border-box; }
 html, body { margin: 0px; color: var(--ink); }
@@ -5401,12 +5402,51 @@ if (pidemasNegocioEnlace) {
     try{
       const enlace=negEnlace(),id=enlace||cartaActual();
       try{if(id)localStorage.setItem(VK,JSON.stringify({id,enlace:!!enlace,t:Date.now()}));else localStorage.removeItem(VK)}catch(_){}
-      /* Vuelve a la misma carta. El parámetro también evita que el navegador muestre una copia vieja de la tienda guardada en caché */
-      const redirectTo=location.origin+location.pathname+(enlace?'?negocio='+encodeURIComponent(enlace)+'&v='+Date.now():'?v='+Date.now());
-      const {error}=await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo,queryParams:{access_type:'offline',prompt:'select_account'}}});
-      if(error)throw error;
+      /* En Android, Google vuelve a la APK mediante un deep link.
+         En la web normal se conserva el retorno al sitio web. */
+      if(window.PidNativeAuth && window.PidNativeAuth.isNative){
+        const redirectTo='com.pidemas.delivery://auth/callback';
+        const {data,error}=await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo,skipBrowserRedirect:true,queryParams:{access_type:'offline',prompt:'select_account'}}});
+        if(error)throw error;
+        if(!data||!data.url)throw new Error('Supabase no devolvió la dirección de autenticación.');
+        await window.PidNativeAuth.openBrowser(data.url);
+      }else{
+        /* Vuelve a la misma carta en la versión web. */
+        const redirectTo=location.origin+location.pathname+(enlace?'?negocio='+encodeURIComponent(enlace)+'&v='+Date.now():'?v='+Date.now());
+        const {error}=await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo,queryParams:{access_type:'offline',prompt:'select_account'}}});
+        if(error)throw error;
+      }
     }catch(e){if(b)b.disabled=false;msg('No se pudo iniciar sesión: '+(e.message||'inténtalo de nuevo.'))}
   };
+
+  /* Recibe el retorno OAuth de Google dentro de la APK Android. */
+  if(window.PidNativeAuth && window.PidNativeAuth.isNative){
+    let procesandoRetornoGoogle=false;
+    const procesarRetornoGoogle=async function(url){
+      if(!url || !String(url).startsWith('com.pidemas.delivery://auth/callback'))return;
+      if(procesandoRetornoGoogle)return;
+      procesandoRetornoGoogle=true;
+      try{
+        const u=new URL(url);
+        const errorOAuth=u.searchParams.get('error_description')||u.searchParams.get('error');
+        if(errorOAuth)throw new Error(errorOAuth);
+        const code=u.searchParams.get('code');
+        if(!code)throw new Error('Google no devolvió el código de acceso.');
+        const {error}=await sb.auth.exchangeCodeForSession(code);
+        if(error)throw error;
+        try{await window.PidNativeAuth.closeBrowser()}catch(_){}
+        msg('¡Sesión iniciada correctamente!',true);
+        const b=$('pcGoogleBtn');if(b)b.disabled=false;
+      }catch(e){
+        try{await window.PidNativeAuth.closeBrowser()}catch(_){}
+        msg('No se pudo completar el inicio con Google: '+(e.message||'inténtalo de nuevo.'));
+        const b=$('pcGoogleBtn');if(b)b.disabled=false;
+      }finally{procesandoRetornoGoogle=false}
+    };
+    window.PidNativeAuth.listenForUrl(procesarRetornoGoogle);
+    window.PidNativeAuth.getLaunchUrl().then(r=>{if(r&&r.url)procesarRetornoGoogle(r.url)}).catch(()=>{});
+  }
+
   (async function volverACarta(){
     let p=null;try{p=JSON.parse(localStorage.getItem(VK)||'null')}catch(_){}
     if(!p||!p.id)return;
