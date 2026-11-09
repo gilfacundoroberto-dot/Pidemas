@@ -31,14 +31,39 @@ jobs:
 
       - name: Preparar archivos web
         run: |
-          mkdir www
+          mkdir -p www
           cp index.html manifest.webmanifest sw.js *.png www/
 
       - name: Instalar dependencias
         run: npm install
 
+      - name: Preparar autenticación nativa
+        run: npx esbuild native-auth.js --bundle --format=iife --outfile=www/native-auth.js
+
       - name: Crear proyecto Android
         run: npx cap add android
+
+      - name: Configurar retorno de Google
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android/app/src/main/AndroidManifest.xml")
+          s = p.read_text()
+          intent = """
+                  <intent-filter>
+                      <action android:name="android.intent.action.VIEW" />
+                      <category android:name="android.intent.category.DEFAULT" />
+                      <category android:name="android.intent.category.BROWSABLE" />
+                      <data android:scheme="com.pidemas.delivery" android:host="auth" android:path="/callback" />
+                  </intent-filter>
+          """
+          if 'android:scheme="com.pidemas.delivery"' not in s:
+              pos = s.find("</activity>")
+              if pos < 0:
+                  raise SystemExit("No se encontró la actividad Android")
+              s = s[:pos] + intent + s[pos:]
+              p.write_text(s)
+          PY
 
       - name: Sincronizar Capacitor
         run: npx cap sync android
@@ -52,5 +77,5 @@ jobs:
       - name: Guardar APK
         uses: actions/upload-artifact@v4
         with:
-          name: Pidemas-Tienda-APK
+          name: Pidemas-Tienda-APK-Google
           path: android/app/build/outputs/apk/debug/app-debug.apk
